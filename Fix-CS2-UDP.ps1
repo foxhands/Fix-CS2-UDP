@@ -15,16 +15,16 @@ if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 # ==== LANG SELECTION ====
 
 Clear-Host
-Write-Host "╔═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║                                             🌐 UDP Port Manager v1.1 🌐                                                                      ║" -ForegroundColor Cyan
-Write-Host "║                                               CS2 Network Optimizer                                                                         ║" -ForegroundColor Cyan
-Write-Host "╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "╔═══════════════════════════════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║                                              UDP Port Manager v1.1                                ║" -ForegroundColor Cyan
+Write-Host "║                                               CS2 Network Optimizer                               ║" -ForegroundColor Cyan
+Write-Host "╚═══════════════════════════════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
 Write-Host "Select language / Выберите язык / Оберіть мову:" -ForegroundColor Yellow
-Write-Host "1. 🇺🇸 English"
-Write-Host "2. 🇷🇺 Русский"
-Write-Host "3. 🇺🇦 Українська"
+Write-Host "1. English"
+Write-Host "2. Русский"
+Write-Host "3. Українська"
 Write-Host ""
 
 do {
@@ -58,7 +58,7 @@ $strings = @{
         "dns_flush" = "Flushing DNS cache..."
         "dns_flushed" = "DNS cache flushed successfully"
         "checking_cs2" = "Checking for running CS2 processes..."
-        "cs2_running" = "⚠️  CS2 is currently running. Please close it before continuing."
+        "cs2_running" = "CS2 is currently running. Please close it before continuing."
         "cs2_not_running" = "CS2 is not running - good to proceed"
         "performance_mode" = "Applying high-performance network settings..."
         "performance_applied" = "High-performance settings applied"
@@ -95,7 +95,7 @@ $strings = @{
         "dns_flush" = "Очистка кэша DNS..."
         "dns_flushed" = "Кэш DNS успешно очищен"
         "checking_cs2" = "Проверка запущенных процессов CS2..."
-        "cs2_running" = "⚠️  CS2 в данный момент запущен. Пожалуйста, закройте его перед продолжением."
+        "cs2_running" = "CS2 в данный момент запущен. Пожалуйста, закройте его перед продолжением."
         "cs2_not_running" = "CS2 не запущен - можно продолжать"
         "performance_mode" = "Применение высокопроизводительных сетевых настроек..."
         "performance_applied" = "Высокопроизводительные настройки применены"
@@ -132,7 +132,7 @@ $strings = @{
         "dns_flush" = "Очищення кешу DNS..."
         "dns_flushed" = "Кеш DNS успішно очищено"
         "checking_cs2" = "Перевірка запущених процесів CS2..."
-        "cs2_running" = "⚠️  CS2 наразі запущений. Будь ласка, закрийте його перед продовженням."
+        "cs2_running" = "CS2 наразі запущений. Будь ласка, закрийте його перед продовженням."
         "cs2_not_running" = "CS2 не запущений - можна продовжувати"
         "performance_mode" = "Застосування високопродуктивних мережевих налаштувань..."
         "performance_applied" = "Високопродуктивні налаштування застосовано"
@@ -206,9 +206,9 @@ if ($cs2Processes) {
                 foreach ($proc in $cs2Processes) {
                     try {
                         Stop-Process -Id $proc.Id -Force -ErrorAction Stop
-                        Write-Log "Terminated CS2 process PID $($proc.Id)" "Green"
+                        Write-Log "Terminated CS2 process PID ${proc.Id}" "Green"
                     } catch {
-                        Write-Log "Failed to terminate PID $($proc.Id): $_" "Red"
+                        Write-Log "Failed to terminate PID ${proc.Id}: $_" "Red"
                     }
                 }
                 break
@@ -247,43 +247,60 @@ try {
 }
 Write-Host ""
 
-# Ask user if they want to restore settings from backup before applying changes
+# Find backup files
 $backupFiles = Get-ChildItem -Path $PSScriptRoot -Filter "UDP_Port_Backup_*.txt" | Sort-Object LastWriteTime -Descending
-if ($backupFiles.Count -gt 0) {
-    Write-Host "Found backup files:"
-    $backupFiles | ForEach-Object { Write-Host " - $($_.Name)" }
-    do {
-        $restoreChoice = Read-Host $s["restore_prompt"]
-        switch ($restoreChoice.ToLower()) {
-            "y" {
-                $backupFile = $backupFiles[0].FullName
-                try {
-                    $content = Get-Content -Path $backupFile -Raw
-                    # Extract original start and number from backup
-                    if ($content -match "Start Port\s*:\s*(\d+)" -and $content -match "Number of Ports\s*:\s*(\d+)") {
-                        $startPort = [int]$matches[1]
-                        $numPorts = [int]$matches[2]
-                        Write-Log "Restoring UDP port range start=$startPort, num=$numPorts" "Yellow"
-                        netsh int ipv4 set dynamicport udp start=$startPort num=$numPorts | Out-Null
-                        Write-Log $s["restored"] "Green"
-                    } else {
-                        Write-Log "Backup file format not recognized, cannot restore." "Red"
-                    }
-                } catch {
-                    Write-Log "Failed to restore from backup: $_" "Red"
-                }
-                break
-            }
-            "n" {
-                Write-Log $s["restore_skipped"] "Yellow"
-                break
-            }
-            default {
-                Write-Host $s["invalid_choice"] -ForegroundColor Red
-            }
+
+if ($backupFiles -and $backupFiles.Count -gt 0) {
+    $backupFile = $backupFiles[0].FullName
+    try {
+        $content = Get-Content -Path $backupFile -Raw
+
+        $startPort = 0
+        $numPorts = 0
+
+        # Define regex patterns for "start port" and "number of ports" in all 3 languages
+        $patterns = @{
+            "startPort" = @(
+                "Start Port\s*:\s*(\d+)",              # English
+                "Начальный порт\s*:\s*(\d+)",          # Russian
+                "Початковий порт\s*:\s*(\d+)"          # Ukrainian
+            )
+            "numPorts" = @(
+                "Number of Ports\s*:\s*(\d+)",         # English
+                "Число портов\s*:\s*(\d+)",             # Russian
+                "Кількість портів\s*:\s*(\d+)"          # Ukrainian
+            )
         }
-    } while ($true)
+
+        # Helper function to try matching all patterns for a key
+        function Find-Match([string[]]$patterns, [string]$text) {
+            foreach ($pattern in $patterns) {
+                if ($text -match $pattern) {
+                    return [int]$matches[1]
+                }
+            }
+            return 0
+        }
+
+        $startPort = Find-Match $patterns["startPort"] $content
+        $numPorts = Find-Match $patterns["numPorts"] $content
+
+        if ($startPort -gt 0 -and $numPorts -gt 0) {
+            Write-Log "Restoring UDP port range start=${startPort}, num=${numPorts}" "Yellow"
+            netsh int ipv4 set dynamicport udp start=${startPort} num=${numPorts} | Out-Null
+            Write-Log $s["restored"] "Green"
+        } else {
+            Write-Log "Backup file format not recognized or values missing, cannot restore." "Red"
+        }
+    } catch {
+        Write-Log "Failed to restore from backup: $_" "Red"
+    }
+} else {
+    Write-Log "Резервные копии не найдены, пропускаем восстановление." "Yellow"
 }
+
+
+
 
 # Create backup of original UDP ephemeral port settings
 Write-Log "Creating backup of original settings..." "Yellow"
@@ -343,7 +360,7 @@ try {
     $startPort = 10000
     $numPorts = 55535
 
-    netsh int ipv4 set dynamicport udp start=$startPort num=$numPorts | Out-Null
+    netsh int ipv4 set dynamicport udp start=${startPort} num=${numPorts} | Out-Null
 
     Write-Log $s["new_range"] "Cyan"
     $newRange = netsh int ipv4 show dynamicport udp
@@ -370,18 +387,18 @@ try {
             try {
                 $pid = $group.Name
                 $proc = Get-Process -Id $pid -ErrorAction Stop
-                Write-Host "PID: $pid  Process: $($proc.ProcessName)  Connections: $($group.Count)" -ForegroundColor Cyan
+                Write-Host "PID: ${pid}  Process: $($proc.ProcessName)  Connections: $($group.Count)" -ForegroundColor Cyan
 
                 # Ask user whether to kill process
                 do {
-                    $answer = Read-Host ($s["kill_process"] -f "$($proc.ProcessName) (PID $pid)").ToLower()
+                    $answer = Read-Host ($s["kill_process"] -f "$($proc.ProcessName) (PID ${pid})").ToLower()
                     if ($answer -in @("y", "yes")) {
                         try {
-                            Stop-Process -Id $pid -Force -ErrorAction Stop
+                            Stop-Process -Id ${pid} -Force -ErrorAction Stop
                             Write-Log $s["terminated"] "Green"
                             break
                         } catch {
-                            Write-Log "Failed to terminate process PID $pid: $_" "Red"
+                            Write-Log "Failed to terminate process PID ${pid}: $_" "Red"
                             break
                         }
                     } elseif ($answer -in @("n", "no")) {
