@@ -1,4 +1,4 @@
-
+### 🇬🇧 
 A PowerShell utility script to fix the common `Failed to bind socket (0x00002747)` error in **Counter-Strike 2**. This error is usually caused by too many ephemeral UDP ports being consumed by background processes, interfering with CS2's ability to communicate with game servers.
 
 ---
@@ -47,11 +47,7 @@ The script will:
 
 ## 🌐 Localized Versions
 
-### 🇬🇧 English
-
-See above.
-
-### 🇺🇦 Українською
+### 🇺🇦
 
 ### Fix-CS2-UDP.ps1
 
