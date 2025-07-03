@@ -12,20 +12,26 @@ if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# Language selection with better formatting
+# ==== LANG SELECTION ====
+
 Clear-Host
 Write-Host "╔═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║                                             🌐 UDP Port Manager v1.0 🌐                                                                      ║" -ForegroundColor Cyan
+Write-Host "║                                             🌐 UDP Port Manager v1.1 🌐                                                                      ║" -ForegroundColor Cyan
 Write-Host "║                                               CS2 Network Optimizer                                                                         ║" -ForegroundColor Cyan
 Write-Host "╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
+
 Write-Host "Select language / Выберите язык / Оберіть мову:" -ForegroundColor Yellow
 Write-Host "1. 🇺🇸 English"
 Write-Host "2. 🇷🇺 Русский"
 Write-Host "3. 🇺🇦 Українська"
 Write-Host ""
+
 do {
     $langChoice = Read-Host "Enter choice (1-3)"
+    if ($langChoice -notin @("1", "2", "3")) {
+        Write-Host "Invalid input, please enter 1, 2 or 3." -ForegroundColor Red
+    }
 } while ($langChoice -notin @("1", "2", "3"))
 
 # Language strings
@@ -60,6 +66,12 @@ $strings = @{
         "connectivity_good" = "Network connectivity test passed"
         "connectivity_issues" = "Network connectivity issues detected"
         "log_created" = "Operation log saved to: {0}"
+        "script_completed" = "Script completed successfully."
+        "restore_prompt" = "Do you want to restore original UDP port settings from backup? (y/n)"
+        "restored" = "Original UDP port settings restored."
+        "restore_skipped" = "Restoration skipped."
+        "invalid_choice" = "Invalid choice, please try again."
+        "exit_message" = "Press any key to exit..."
     }
     "ru" = @{
         "installing_ports" = "Установка расширенного диапазона ephemeral портов..."
@@ -91,6 +103,12 @@ $strings = @{
         "connectivity_good" = "Тест сетевого соединения пройден"
         "connectivity_issues" = "Обнаружены проблемы с сетевым соединением"
         "log_created" = "Журнал операций сохранен в: {0}"
+        "script_completed" = "Скрипт успешно завершён."
+        "restore_prompt" = "Хотите восстановить исходные настройки UDP портов из резервной копии? (y/n)"
+        "restored" = "Исходные настройки UDP портов восстановлены."
+        "restore_skipped" = "Восстановление пропущено."
+        "invalid_choice" = "Неверный выбор, попробуйте снова."
+        "exit_message" = "Нажмите любую клавишу для выхода..."
     }
     "ua" = @{
         "installing_ports" = "Встановлення розширеного діапазону ephemeral портів..."
@@ -122,10 +140,15 @@ $strings = @{
         "connectivity_good" = "Тест мережевого з'єднання пройдено"
         "connectivity_issues" = "Виявлено проблеми з мережевим з'єднанням"
         "log_created" = "Журнал операцій збережено в: {0}"
+        "script_completed" = "Скрипт успішно завершено."
+        "restore_prompt" = "Бажаєте відновити початкові налаштування UDP портів з резервної копії? (y/n)"
+        "restored" = "Початкові налаштування UDP портів відновлено."
+        "restore_skipped" = "Відновлення пропущено."
+        "invalid_choice" = "Неправильний вибір, спробуйте ще раз."
+        "exit_message" = "Натисніть будь-яку клавішу для виходу..."
     }
 }
 
-# Set language based on choice
 switch ($langChoice) {
     "1" { $lang = "en" }
     "2" { $lang = "ru" }
@@ -140,58 +163,155 @@ $logFile = "UDP_Port_Manager_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 $logPath = Join-Path $PSScriptRoot $logFile
 
 function Write-Log {
-    param($Message, $Color = "White")
+    param(
+        [string]$Message,
+        [string]$Color = "White"
+    )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logMessage = "[$timestamp] $Message"
-    Add-Content -Path $logPath -Value $logMessage
+    try {
+        Add-Content -Path $logPath -Value $logMessage -ErrorAction Stop
+    } catch {
+        Write-Host "Failed to write to log file: $_" -ForegroundColor Red
+    }
     Write-Host $Message -ForegroundColor $Color
 }
 
 # Start logging
-Write-Log "UDP Port Manager v1.0 started" "Cyan"
+Write-Log "UDP Port Manager v1.1 started" "Cyan"
 Write-Log "Selected language: $lang" "Cyan"
 
-# Check for CS2 processes
+# Check PowerShell version compatibility
+$psVersion = $PSVersionTable.PSVersion
+if ($psVersion.Major -lt 5) {
+    Write-Log "Warning: PowerShell version 5.1 or higher is recommended. Current version: $psVersion" "Yellow"
+}
+
+# Check for running CS2 processes
 Write-Log $s["checking_cs2"] "Yellow"
 $cs2Processes = Get-Process -Name "cs2" -ErrorAction SilentlyContinue
 if ($cs2Processes) {
     Write-Log $s["cs2_running"] "Red"
-    $continue = Read-Host "Continue anyway? (y/n)"
-    if ($continue -ne "y") {
-        Write-Log "Operation cancelled by user" "Yellow"
-        exit 0
+
+    # List running CS2 processes
+    foreach ($proc in $cs2Processes) {
+        Write-Log " - $($proc.ProcessName) (PID: $($proc.Id))" "White"
     }
+
+    # Offer to terminate CS2 processes automatically
+    do {
+        $terminateCS2 = Read-Host "Terminate all CS2 processes now? (y/n)"
+        switch ($terminateCS2.ToLower()) {
+            "y" {
+                foreach ($proc in $cs2Processes) {
+                    try {
+                        Stop-Process -Id $proc.Id -Force -ErrorAction Stop
+                        Write-Log "Terminated CS2 process PID $($proc.Id)" "Green"
+                    } catch {
+                        Write-Log "Failed to terminate PID $($proc.Id): $_" "Red"
+                    }
+                }
+                break
+            }
+            "n" {
+                do {
+                    $continue = Read-Host "Continue anyway? (y/n)"
+                    if ($continue.ToLower() -eq "y") {
+                        break 2
+                    } elseif ($continue.ToLower() -eq "n") {
+                        Write-Log "Operation cancelled by user" "Yellow"
+                        Write-Host $s["exit_message"]
+                        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                        exit 0
+                    } else {
+                        Write-Host $s["invalid_choice"] -ForegroundColor Red
+                    }
+                } while ($true)
+            }
+            default {
+                Write-Host $s["invalid_choice"] -ForegroundColor Red
+            }
+        }
+    } while ($true)
 } else {
     Write-Log $s["cs2_not_running"] "Green"
 }
 
-# Create backup of original settings
+# Show network adapter info
+Write-Host ""
+Write-Log $s["network_adapter_info"] "Cyan"
+try {
+    Get-NetAdapter | Format-Table -AutoSize | Out-String | Write-Host
+} catch {
+    Write-Log "Failed to retrieve network adapter info: $_" "Yellow"
+}
+Write-Host ""
+
+# Ask user if they want to restore settings from backup before applying changes
+$backupFiles = Get-ChildItem -Path $PSScriptRoot -Filter "UDP_Port_Backup_*.txt" | Sort-Object LastWriteTime -Descending
+if ($backupFiles.Count -gt 0) {
+    Write-Host "Found backup files:"
+    $backupFiles | ForEach-Object { Write-Host " - $($_.Name)" }
+    do {
+        $restoreChoice = Read-Host $s["restore_prompt"]
+        switch ($restoreChoice.ToLower()) {
+            "y" {
+                $backupFile = $backupFiles[0].FullName
+                try {
+                    $content = Get-Content -Path $backupFile -Raw
+                    # Extract original start and number from backup
+                    if ($content -match "Start Port\s*:\s*(\d+)" -and $content -match "Number of Ports\s*:\s*(\d+)") {
+                        $startPort = [int]$matches[1]
+                        $numPorts = [int]$matches[2]
+                        Write-Log "Restoring UDP port range start=$startPort, num=$numPorts" "Yellow"
+                        netsh int ipv4 set dynamicport udp start=$startPort num=$numPorts | Out-Null
+                        Write-Log $s["restored"] "Green"
+                    } else {
+                        Write-Log "Backup file format not recognized, cannot restore." "Red"
+                    }
+                } catch {
+                    Write-Log "Failed to restore from backup: $_" "Red"
+                }
+                break
+            }
+            "n" {
+                Write-Log $s["restore_skipped"] "Yellow"
+                break
+            }
+            default {
+                Write-Host $s["invalid_choice"] -ForegroundColor Red
+            }
+        }
+    } while ($true)
+}
+
+# Create backup of original UDP ephemeral port settings
 Write-Log "Creating backup of original settings..." "Yellow"
 try {
     $originalRange = netsh int ipv4 show dynamicport udp
-    $backupFile = "UDP_Port_Backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
-    $backupPath = Join-Path $PSScriptRoot $backupFile
-    $originalRange | Out-File -FilePath $backupPath -Encoding UTF8
+    $backupFileName = "UDP_Port_Backup_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+    $backupPath = Join-Path $PSScriptRoot $backupFileName
+    $originalRange | Out-File -FilePath $backupPath -Encoding UTF8 -ErrorAction Stop
     Write-Log ($s["backup_created"] -f $backupPath) "Green"
 } catch {
     Write-Log $s["backup_failed"] "Yellow"
 }
 
-# Show original range
+# Show original UDP ephemeral port range
 Write-Log $s["original_range"] "Cyan"
-$originalRange
+Write-Host $originalRange
+Write-Host ""
 
 # Apply high-performance network settings
 Write-Log $s["performance_mode"] "Yellow"
 try {
-    # Set TCP parameters for better performance
     netsh int tcp set global autotuninglevel=normal | Out-Null
     netsh int tcp set global rss=enabled | Out-Null
     netsh int tcp set global chimney=enabled | Out-Null
     netsh int tcp set global netdma=enabled | Out-Null
     Write-Log $s["performance_applied"] "Green"
 } catch {
-    Write-Log "Failed to apply performance settings" "Yellow"
+    Write-Log "Failed to apply performance settings: $_" "Yellow"
 }
 
 # Flush DNS cache
@@ -200,7 +320,7 @@ try {
     ipconfig /flushdns | Out-Null
     Write-Log $s["dns_flushed"] "Green"
 } catch {
-    Write-Log "Failed to flush DNS cache" "Yellow"
+    Write-Log "Failed to flush DNS cache: $_" "Yellow"
 }
 
 # Check Windows Firewall status
@@ -213,77 +333,87 @@ try {
         Write-Log $s["firewall_disabled"] "Green"
     }
 } catch {
-    Write-Log "Could not check firewall status" "Yellow"
+    Write-Log "Failed to check firewall status: $_" "Yellow"
 }
 
-# Main script execution
+# Install extended ephemeral port range
 Write-Log $s["installing_ports"] "Yellow"
-netsh int ipv4 set dynamicport udp start=10000 num=55535 | Out-Null
+try {
+    # Recommended high port range for UDP ephemeral ports
+    $startPort = 10000
+    $numPorts = 55535
 
-# Check current range
-$newRange = netsh int ipv4 show dynamicport udp
-Write-Log $s["new_range"] "Cyan"
-$newRange
+    netsh int ipv4 set dynamicport udp start=$startPort num=$numPorts | Out-Null
 
-# Test network connectivity
+    Write-Log $s["new_range"] "Cyan"
+    $newRange = netsh int ipv4 show dynamicport udp
+    Write-Host $newRange
+} catch {
+    Write-Log "Failed to set ephemeral port range: $_" "Red"
+}
+
+# Collect UDP port usage statistics
+Write-Log $s["collecting_stats"] "Yellow"
+try {
+    $threshold = 50 # Threshold for "heavy" UDP port users
+
+    # Get UDP endpoints grouped by ProcessId
+    $udpConnections = Get-NetUDPEndpoint | Group-Object -Property OwningProcess
+
+    $heavyUsers = $udpConnections | Where-Object { $_.Count -gt $threshold }
+
+    if ($heavyUsers.Count -eq 0) {
+        Write-Log $s["no_heavy_users"] "Green"
+    } else {
+        Write-Log ($s["found_heavy_users"] -f $threshold) "Yellow"
+        foreach ($group in $heavyUsers) {
+            try {
+                $pid = $group.Name
+                $proc = Get-Process -Id $pid -ErrorAction Stop
+                Write-Host "PID: $pid  Process: $($proc.ProcessName)  Connections: $($group.Count)" -ForegroundColor Cyan
+
+                # Ask user whether to kill process
+                do {
+                    $answer = Read-Host ($s["kill_process"] -f "$($proc.ProcessName) (PID $pid)").ToLower()
+                    if ($answer -in @("y", "yes")) {
+                        try {
+                            Stop-Process -Id $pid -Force -ErrorAction Stop
+                            Write-Log $s["terminated"] "Green"
+                            break
+                        } catch {
+                            Write-Log "Failed to terminate process PID $pid: $_" "Red"
+                            break
+                        }
+                    } elseif ($answer -in @("n", "no")) {
+                        Write-Log $s["skipped"] "Yellow"
+                        break
+                    } else {
+                        Write-Host $s["invalid_choice"] -ForegroundColor Red
+                    }
+                } while ($true)
+            } catch {
+                Write-Log ($s["process_info_error"] -f $pid) "Yellow"
+            }
+        }
+    }
+} catch {
+    Write-Log "Failed to collect UDP port usage stats: $_" "Red"
+}
+
+# Test network connectivity to google DNS server as quick test
 Write-Log $s["testing_connectivity"] "Yellow"
 try {
-    $testResults = @()
-    $testHosts = @("8.8.8.8", "1.1.1.1", "valve.steampowered.com")
-    
-    foreach ($host in $testHosts) {
-        $ping = Test-Connection -ComputerName $host -Count 1 -Quiet
-        $testResults += $ping
-    }
-    
-    if ($testResults -contains $true) {
+    $pingResult = Test-Connection -ComputerName 8.8.8.8 -Count 3 -Quiet
+    if ($pingResult) {
         Write-Log $s["connectivity_good"] "Green"
     } else {
         Write-Log $s["connectivity_issues"] "Red"
     }
 } catch {
-    Write-Log "Could not test connectivity" "Yellow"
+    Write-Log "Error during connectivity test: $_" "Red"
 }
 
-# Get active UDP connections
-Write-Log $s["collecting_stats"] "Yellow"
-$udpUsage = Get-NetUDPEndpoint | Group-Object -Property OwningProcess | Sort-Object Count -Descending
-
-# Threshold: how many connections to consider suspiciously large
-$threshold = 100
-$heavyUsers = $udpUsage | Where-Object { $_.Count -ge $threshold }
-
-if ($heavyUsers.Count -eq 0) {
-    Write-Log $s["no_heavy_users"] "Green"
-} else {
-    Write-Log ($s["found_heavy_users"] -f $threshold) "Yellow"
-
-    foreach ($procGroup in $heavyUsers) {
-        try {
-            $pid = $procGroup.Name
-            $proc = Get-Process -Id $pid -ErrorAction Stop
-            $message = " - $($proc.ProcessName) (PID: $pid) — $($procGroup.Count) $($s["connections_count"])"
-            Write-Log $message "White"
-
-            $kill = Read-Host (" → " + ($s["kill_process"] -f $proc.ProcessName))
-            if ($kill -eq "y") {
-                Stop-Process -Id $pid -Force
-                Write-Log ("   " + $s["terminated"]) "Green"
-            } else {
-                Write-Log ("   " + $s["skipped"]) "Yellow"
-            }
-        } catch {
-            $errorMessage = " - " + ($s["process_info_error"] -f $pid)
-            Write-Log $errorMessage "Red"
-        }
-    }
-}
-
-# Final summary
-Write-Log "=== OPERATION SUMMARY ===" "Cyan"
-Write-Log "UDP Port range: 10000-65535" "Green"
-Write-Log "DNS cache cleared" "Green"
-Write-Log "Performance settings applied" "Green"
-Write-Log ($s["log_created"] -f $logPath) "Cyan"
+Write-Host ""
 Write-Log $s["script_completed"] "Cyan"
-Pause
+Write-Host $s["exit_message"]
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
